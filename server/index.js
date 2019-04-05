@@ -30,6 +30,13 @@ const ShopItemsSchema = new Schema({
 });
 const ShopItem = mongoose.model('ShopItems', ShopItemsSchema);
 
+const OrderSchema = new Schema({
+  email: String,
+  itemIds: [String],
+  date: Date
+});
+const NewOrder = mongoose.model('Orders', OrderSchema);
+
 async function createShopItem(item) {
   const shopItem = new ShopItem({
     _id: new mongoose.Types.ObjectId(),
@@ -42,17 +49,47 @@ async function createShopItem(item) {
   await shopItem.save();
 }
 
+async function createOrder(order) {
+  const newOrder = new NewOrder({
+    email: order.email,
+    itemIds: handleArray(order.itemIds),
+    date: new Date()
+  });
+  await newOrder.save()
+}
+
+const handleArray = (itemIds) => {
+  return itemIds ? itemIds.split(',') : null;
+};
+
 const handleError = (error) => {
   res.status(500).json({error: error})
 };
 
-const handleItemId = (req, res, next) => {
-  if (!req.query.itemId) {
+const handleRequest = (req, res, next) => {
+  if (_.has(req.query, 'searchParams') || _.has(req.query, 'itemIds') || _.has(req.query, 'category')) {
     return next()
   }
-  const itemId = req.query.itemId;
 
-  ShopItem.findById(itemId)
+  const pageNumber = _.toNumber(req.query.pageNumber);
+  const pageSize = _.toNumber(req.query.pageSize);
+
+  ShopItem.find()
+    .skip((pageNumber - 1) * pageSize)
+    .limit(pageSize)
+    .exec((error, result) => {
+      if (error) {
+        return handleError(error)
+      }
+      res.status(200).json({items: result})
+    });
+};
+
+const handleItemIds = (req, res, next) => {
+  const itemIds = handleArray(req.query.itemIds);
+  if (!itemIds) {return next() }
+
+  ShopItem.find({_id: itemIds})
     .exec((error, result) => {
       if (error) {
         return handleError(error)
@@ -68,8 +105,8 @@ const handleCategory = (req, res, next) => {
   }
 
   const category = req.query.category;
-  const pageNumber = Number(req.query.pageNumber);
-  const pageSize = Number(req.query.pageSize);
+  const pageNumber = _.toNumber(req.query.pageNumber);
+  const pageSize = _.toNumber(req.query.pageSize);
 
   ShopItem.find({category: category})
     .skip((pageNumber - 1) * pageSize)
@@ -90,40 +127,24 @@ const handleSearchParams = (req, res, next) => {
   const searchParams = req.query.searchParams;
 
   ShopItem.find({$text: {$search: searchParams}})
-    .exec((error, result) => {
+    .then((error, result) => {
       if (error) {
         return handleError(error)
       }
 
       res.status(200).json({items: result})
-    });
+    })
 };
 
-const handleRequest = (req, res, next) => {
-  if (_.has(req.query, 'searchParams') || _.has(req.query, 'itemId') || _.has(req.query, 'category')) {
-    return next()
-  }
 
-  const pageNumber = Number(req.query.pageNumber);
-  const pageSize = Number(req.query.pageSize);
-
-  ShopItem.find()
-    .skip((pageNumber - 1) * pageSize)
-    .limit(pageSize)
-    .exec((error, result) => {
-      if (error) {
-        return handleError(error)
-      }
-      res.status(200).json({items: result})
-    });
-};
-
-app.get('/items', cors(), handleRequest, handleItemId, handleCategory, handleSearchParams);
+app.get('/items', cors(), handleRequest, handleItemIds, handleCategory, handleSearchParams);
 
 app.get('/items/categories', cors(), (req, res) => {
   ShopItem.find()
     .exec((error, result) => {
-      if (error) {return handleError(error)}
+      if (error) {
+        return handleError(error)
+      }
 
       res.status(200).json({
         categories: !_.isNull(_.uniq(result.map((item) => item.category))) ? _.uniq(result.map((item) => item.category)) : []
@@ -134,7 +155,9 @@ app.get('/items/categories', cors(), (req, res) => {
 app.get('/items/basket', cors(), (req, res) => {
   ShopItem.find({basket: true})
     .exec((error, result) => {
-      if (error) {return handleError(error)}
+      if (error) {
+        return handleError(error)
+      }
 
       res.status(200).json({
         items: result,
@@ -149,12 +172,23 @@ app.post('/items/updatebasket', cors(), (req, res) => {
   const query = {_id: itemId};
 
   ShopItem.findOneAndUpdate(query, {$set: {basket: addToBasket}}, (error, result) => {
-    if (error) {return handleError(error)}
+    if (error) {
+      return handleError(error)
+    }
 
     res.status(200).json({
       success: true
     });
   })
+});
+
+app.post('/items/createorder', cors(), (req, res, next) => {
+  if (_.isEmpty(req.body)) {return next()}
+
+  createOrder(req.body)
+    .then(res.status(200).json({
+      success: true
+    }));
 });
 
 app.post('/items', cors(), (req, res) => {
