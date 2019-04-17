@@ -26,6 +26,7 @@ const ShopItemsSchema = new Schema({
   price: Number,
   description: {type: String, text: true},
   category: String,
+  subcategory: String,
   basket: Boolean
 });
 const ShopItem = mongoose.model('ShopItems', ShopItemsSchema);
@@ -44,6 +45,7 @@ async function createShopItem(item) {
     price: item.price,
     description: item.description,
     category: item.category,
+    subcategory: item.subcategory,
     basket: false
   });
   await shopItem.save();
@@ -67,7 +69,7 @@ const handleError = (error) => {
 };
 
 const handleRequest = (req, res, next) => {
-  if (_.has(req.query, 'searchParams') || _.has(req.query, 'itemIds') || _.has(req.query, 'category')) {
+  if (_.has(req.query, 'searchParams') || _.has(req.query, 'itemIds') || _.has(req.query, 'category') || _.has(req.query, 'subcategory')) {
     return next()
   }
 
@@ -136,8 +138,28 @@ const handleSearchParams = (req, res, next) => {
     })
 };
 
+const handleSubcategory = (req, res, next) => {
+  if (!req.query.subcategory) {
+    return next()
+  }
 
-app.get('/items', cors(), handleRequest, handleItemIds, handleCategory, handleSearchParams);
+  const subcategory = req.query.subcategory;
+  const pageNumber = _.toNumber(req.query.pageNumber);
+  const pageSize = _.toNumber(req.query.pageSize);
+
+  ShopItem.find({subcategory: subcategory})
+    .skip((pageNumber - 1) * pageSize)
+    .limit(pageSize)
+    .exec((error, result) => {
+      if (error) {
+        return handleError(error)
+      }
+
+      res.status(200).json({items: result})
+    });
+};
+
+app.get('/items', cors(), handleRequest, handleItemIds, handleCategory, handleSubcategory, handleSearchParams);
 
 app.get('/items/categories', cors(), (req, res) => {
   ShopItem.find()
@@ -148,6 +170,19 @@ app.get('/items/categories', cors(), (req, res) => {
 
       res.status(200).json({
         categories: !_.isNull(_.uniq(result.map((item) => item.category))) ? _.uniq(result.map((item) => item.category)) : []
+      })
+    })
+});
+
+app.get('/items/subcategories', cors(), (req, res) => {
+  ShopItem.find()
+    .exec((error, result) => {
+      if (error) {
+        return handleError(error)
+      }
+
+      res.status(200).json({
+        subcategories: !_.isNull(_.uniq(result.map((item) => item.subcategory))) ? _.uniq(result.map((item) => item.subcategory)) : []
       })
     })
 });
